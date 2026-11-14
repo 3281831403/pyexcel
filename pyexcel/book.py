@@ -152,24 +152,24 @@ class Book(BookMeta):
 
         """
         content = OrderedDict()
-        current_dict = self.to_dict()
+        current_dict = self._named_sheets()
         if len(current_dict) == 1:
             for single_key in current_dict.keys():
                 new_key = f"{self.filename}_{single_key}"
-                content[new_key] = current_dict[single_key]
+                content[new_key] = _rename(current_dict[single_key], new_key)
         else:
             content.update(current_dict)
         if isinstance(other, Book):
-            other_dict = other.to_dict()
+            other_dict = other._named_sheets()
             for key in other_dict.keys():
                 preferred = (
                     f"{other.filename}_{key}" if len(other_dict) == 1 else key
                 )
                 new_key = _unique_key(preferred, content, base=key)
-                content[new_key] = other_dict[key]
+                content[new_key] = _rename(other_dict[key], new_key)
         elif isinstance(other, Sheet):
             new_key = _unique_key(other.name, content)
-            content[new_key] = other.array
+            content[new_key] = _rename(other.clone(), new_key)
         else:
             raise TypeError
         output = Book()
@@ -191,7 +191,10 @@ class Book(BookMeta):
             for name in names:
                 preferred = other.filename if len(names) == 1 else name
                 new_key = _unique_key(preferred, self.__sheets, base=name)
-                self.__sheets[new_key] = Sheet(other[name].array, new_key)
+                self.__sheets[new_key] = _rename(
+                    other.sheet_by_name(name).clone(),
+                    new_key,
+                )
         elif isinstance(other, Sheet):
             self._add_a_sheet(other)
         else:
@@ -205,7 +208,13 @@ class Book(BookMeta):
         :param sheet: an instance of Sheet
         """
         new_key = _unique_key(sheet.name, self.__sheets)
-        self.__sheets[new_key] = Sheet(sheet.array, new_key)
+        self.__sheets[new_key] = _rename(sheet.clone(), new_key)
+
+    def _named_sheets(self):
+        """Return a copy of the sheets, column and row names included"""
+        return OrderedDict(
+            (name, sheet.clone()) for name, sheet in self.__sheets.items()
+        )
 
     def to_dict(self):
         """Convert the book to a dictionary"""
@@ -241,3 +250,9 @@ def _unique_key(preferred, existing, base=None):
     if preferred in existing:
         return f"{base}_{local_uuid()}"
     return preferred
+
+
+def _rename(sheet, name):
+    """Give a sheet its new name, keeping its column and row names"""
+    sheet.name = name
+    return sheet

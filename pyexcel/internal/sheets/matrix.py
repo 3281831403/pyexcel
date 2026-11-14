@@ -764,14 +764,18 @@ class Matrix(SheetMeta):
                 self.cell_value(row, column, value)
 
     def __iadd__(self, other):
-        return _add(self.name, self.__array, other)
+        return _add(self, other)
 
     def __add__(self, other):
         """Overload the + sign
 
         :returns: a new book
         """
-        return _add(self.name, copy.deepcopy(self.__array), other)
+        # the clone is detached; Sheet.clone keeps names, and a plain
+        # Matrix clone needs its name carried over explicitly
+        left = self.clone()
+        left.name = self.name
+        return _add(left, other)
 
     def clone(self):
         return Matrix(copy.deepcopy(self.__array))
@@ -852,13 +856,19 @@ def transpose(in_array):
     return new_array
 
 
-def _add(name, left, right):
+def _add(left, right):
+    """Merge a matrix and the incoming object into a new book
+
+    A sheet goes in as a sheet, so that its column and row names survive.
+    A plain matrix had no names to keep, and is carried as before.
+    """
     from pyexcel.book import Book, local_uuid
 
     content = {}
-    content[name] = left
+    left_key = left.name
+    content[left_key] = _left_value(left)
     if isinstance(right, Book):
-        right_in_dict = copy.deepcopy(right.to_dict())
+        right_in_dict = right._named_sheets()
         for key in right_in_dict.keys():
             new_key = key
             if len(right_in_dict.keys()) == 1:
@@ -872,9 +882,34 @@ def _add(name, left, right):
         if new_key in content:
             uid = local_uuid()
             new_key = f"{right.name}_{uid}"
-        content[new_key] = copy.deepcopy(right.get_internal_array())
+        content[new_key] = _right_value(right)
     else:
         raise TypeError
     new_book = Book()
     new_book.load_from_sheets(content)
     return new_book
+
+
+def _left_value(matrix):
+    """Return this matrix as it is carried into the new book
+
+    A sheet keeps its names; a plain matrix never had any, and is handed
+    over as it was.
+    """
+    from pyexcel.sheet import Sheet
+
+    if isinstance(matrix, Sheet):
+        return matrix.clone()
+    return matrix.get_internal_array()
+
+
+def _right_value(matrix):
+    """Return a detached copy of the incoming matrix
+
+    Again a sheet keeps its names; a plain matrix is copied as before.
+    """
+    from pyexcel.sheet import Sheet
+
+    if isinstance(matrix, Sheet):
+        return matrix.clone()
+    return copy.deepcopy(matrix.get_internal_array())

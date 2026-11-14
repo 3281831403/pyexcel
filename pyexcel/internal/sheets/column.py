@@ -261,9 +261,7 @@ class Column(utils.CommonPropertyAmongRowNColumn):
         elif isinstance(other, list):
             self._ref.extend_columns(copy.deepcopy(other))
         elif hasattr(other, "get_internal_array"):
-            self._ref.extend_columns_with_rows(
-                copy.deepcopy(other.get_internal_array()),
-            )
+            self._extend_with_rows(self._ref, other)
         else:
             raise TypeError
 
@@ -279,13 +277,26 @@ class Column(utils.CommonPropertyAmongRowNColumn):
         elif isinstance(other, list):
             new_instance.extend_columns(copy.deepcopy(other))
         elif hasattr(other, "get_internal_array"):
-            new_instance.extend_columns_with_rows(
-                copy.deepcopy(other.get_internal_array()),
-            )
+            self._extend_with_rows(new_instance, other)
         else:
             raise TypeError
 
         return new_instance
+
+    @staticmethod
+    def _extend_with_rows(target, other):
+        """Append the incoming sheet's data as columns
+
+        A named sheet keeps its column names apart from its data rows, so
+        they are handed over as names. Without them, they would be taken
+        for one more data row.
+        """
+        data = copy.deepcopy(other.get_internal_array())
+        names = getattr(other, "colnames", None)
+        if names and hasattr(target, "colnames"):
+            target.extend_columns_with_rows(data, column_names=names)
+        else:
+            target.extend_columns_with_rows(data)
 
     def __getattr__(self, attr):
         """

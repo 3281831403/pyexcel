@@ -166,11 +166,22 @@ class Sheet(Matrix):
             self.transpose()
 
     def clone(self):
+        """Return a deep copy of this sheet, its names included
+
+        The internal array no longer holds the row or the column that
+        gave the names, so the names have to be copied over as they are.
+        Deriving them again from the internal array would take the first
+        data row as column names, or fail on a sheet that has only a
+        header row.
+        """
         new_sheet = Sheet(
             copy.deepcopy(self.get_internal_array()),
-            name_columns_by_row=self.__row_index,
-            name_rows_by_column=self.__column_index,
+            name=self.name,
+            colnames=copy.deepcopy(self.__column_names),
+            rownames=copy.deepcopy(self.__row_names),
         )
+        new_sheet.__row_index = self.__row_index
+        new_sheet.__column_index = self.__column_index
         return new_sheet
 
     def __deepcopy__(self, memo):
@@ -409,24 +420,73 @@ class Sheet(Matrix):
         """
         incoming_data = []
         if isinstance(rows, compact.OrderedDict):
+            # row names are positional, so the rows that are already there
+            # need a placeholder name to stay in step with the new ones
+            self._pad_row_names(introduce=len(self.__column_names) > 0)
             keys = rows.keys()
             for k in keys:
                 self.rownames.append(k)
                 incoming_data.append(rows[k])
             Matrix.extend_rows(self, incoming_data)
+            self._pad_column_names()
         elif len(self.rownames) > 0:
             raise TypeError(
                 constants.MESSAGE_DATA_ERROR_ORDEREDDICT_IS_EXPECTED,
             )
         else:
             Matrix.extend_rows(self, rows)
+            self._pad_column_names()
+            self._pad_row_names()
 
-    def extend_columns_with_rows(self, rows):
-        """Put rows on the right most side of the data"""
+    def _pad_row_names(self, introduce=False):
+        """Keep the row names in step with the rows
+
+        The n-th row name belongs to the n-th row.  When rows are added
+        under names, the rows that came before must get a placeholder
+        name, otherwise the new names would label the old rows and the
+        incoming rows would be dropped on export.
+
+        A sheet that had no names at all is left untouched, unless
+        ``introduce`` says that names are being added right now.
+        """
+        if len(self.__row_names) == 0 and not introduce:
+            return
+        missing = self.number_of_rows() - len(self.__row_names)
+        if missing > 0:
+            self.__row_names += [constants.DEFAULT_NA] * missing
+
+    def _pad_column_names(self):
+        """Keep the column names in step with the columns
+
+        Only a sheet that already has column names gets placeholders; one
+        without them keeps its current presentation.
+        """
+        if len(self.__column_names) == 0:
+            return
+        missing = self.number_of_columns() - len(self.__column_names)
+        if missing > 0:
+            self.__column_names += [constants.DEFAULT_NA] * missing
+
+    def extend_columns_with_rows(self, rows, column_names=None):
+        """Put rows on the right most side of the data
+
+        :param rows: the rows to be appended on the right. When the sheet
+                     has column names and one more row is given than the
+                     sheet has, that extra row holds the names of the new
+                     columns and is consumed here.
+        :param column_names: names of the incoming columns, when the source
+                             kept them apart from its data rows. They are
+                             used only if this sheet already has names.
+        """
         if len(self.colnames) > 0:
-            headers = rows.pop(self.__row_index)
-            self.__column_names += headers
+            if column_names:
+                self.__column_names += make_names_unique(list(column_names))
+            elif len(rows) > self.number_of_rows():
+                headers = rows.pop(0)
+                self.__column_names += make_names_unique(headers)
         Matrix.extend_columns_with_rows(self, rows)
+        self._pad_row_names()
+        self._pad_column_names()
 
     def extend_columns(self, columns):
         """Take ordereddict to extend named columns
@@ -440,12 +500,14 @@ class Sheet(Matrix):
                 self.colnames.append(k)
                 incoming_data.append(columns[k])
             Matrix.extend_columns(self, incoming_data)
+            self._pad_row_names()
         elif len(self.colnames) > 0:
             raise TypeError(
                 constants.MESSAGE_DATA_ERROR_ORDEREDDICT_IS_EXPECTED,
             )
         else:
             Matrix.extend_columns(self, columns)
+            self._pad_row_names()
 
     def to_array(self):
         """Returns an array after filtering"""
